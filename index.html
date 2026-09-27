@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>暗号文 代替式暗号 解読 ヘルパー</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-900 text-gray-100 min-h-screen p-4">
+  <div class="max-w-4xl mx-auto">
+    <h1 class="text-2xl font-bold mb-1 text-violet-400">暗号文 代替式暗号 解読 ヘルパー</h1>
+    <p class="text-gray-400 text-sm mb-4">Caesar / Atbash / カスタム換字 + 文字頻度分析</p>
+
+    <!-- Tabs -->
+    <div class="flex gap-1 mb-4">
+      <button class="cipher-tab bg-violet-700 text-white px-4 py-2 rounded-t font-medium text-sm" data-tab="caesar" aria-label="Caesarモードに切り替える">Caesar</button>
+      <button class="cipher-tab bg-gray-700 hover:bg-gray-600 text-gray-300 px-4 py-2 rounded-t text-sm" data-tab="atbash" aria-label="Atbashモードに切り替える">Atbash</button>
+      <button class="cipher-tab bg-gray-700 hover:bg-gray-600 text-gray-300 px-4 py-2 rounded-t text-sm" data-tab="custom" aria-label="カスタム換字モードに切り替える">カスタム換字</button>
+    </div>
+
+    <!-- Caesar panel -->
+    <div id="panel-caesar" class="cipher-panel bg-gray-800 rounded p-4 mb-4">
+      <div class="flex items-center gap-4 mb-3">
+        <div class="flex items-center gap-3">
+          <label for="caesar-shift" class="text-sm text-gray-300">シフト数:</label>
+          <input id="caesar-shift" type="range" min="1" max="25" value="13"
+            class="w-40 accent-violet-500">
+          <span id="caesar-shift-label" class="text-violet-400 font-bold font-mono w-8">13</span>
+        </div>
+        <div class="flex items-center gap-2">
+          <label for="caesar-mode" class="text-sm text-gray-300">モード:</label>
+          <select id="caesar-mode"
+            class="bg-gray-700 border border-gray-600 rounded px-2 py-1 text-sm text-gray-100 focus:outline-none focus:border-violet-500">
+            <option value="encrypt">暗号化</option>
+            <option value="decrypt">復号化</option>
+          </select>
+        </div>
+      </div>
+      <div class="bg-gray-700 rounded p-3 text-xs font-mono text-gray-400 mb-2">
+        A→<span id="caesar-preview" class="text-violet-400 font-bold"></span>
+        のシフト（ROT-<span id="caesar-rot" class="text-violet-400"></span>）
+      </div>
+    </div>
+
+    <!-- Atbash panel -->
+    <div id="panel-atbash" class="cipher-panel hidden bg-gray-800 rounded p-4 mb-4">
+      <p class="text-sm text-gray-400">Atbash: A↔Z, B↔Y, C↔X ... 逆順マッピング（双方向）</p>
+      <div class="bg-gray-700 rounded p-2 text-xs font-mono mt-2 overflow-x-auto text-gray-300">
+        A→Z B→Y C→X D→W E→V F→U G→T H→S I→R J→Q K→P L→O M→N<br>
+        N→M O→L P→K Q→J R→I S→H T→G U→F V→E W→D X→C Y→B Z→A
+      </div>
+    </div>
+
+    <!-- Custom panel -->
+    <div id="panel-custom" class="cipher-panel hidden bg-gray-800 rounded p-4 mb-4">
+      <p class="text-sm text-gray-400 mb-3">各文字の換字先を設定してください（大文字）</p>
+      <div id="custom-mapping-grid" class="grid grid-cols-6 md:grid-cols-9 gap-1.5 mb-3"></div>
+      <div class="flex gap-2">
+        <button id="custom-reset-btn"
+          class="bg-gray-700 hover:bg-gray-600 text-sm text-gray-300 px-3 py-1 rounded transition-colors"
+          aria-label="カスタムマッピングをリセットする">リセット</button>
+        <button id="custom-random-btn"
+          class="bg-violet-800 hover:bg-violet-700 text-sm text-gray-300 px-3 py-1 rounded transition-colors"
+          aria-label="ランダムな換字表を生成する">ランダム生成</button>
+      </div>
+    </div>
+
+    <!-- Input / Output -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+      <div>
+        <label for="input-text" class="block text-sm text-gray-300 mb-1">入力テキスト</label>
+        <textarea id="input-text" rows="6"
+          class="w-full bg-gray-800 border border-gray-600 rounded p-3 text-sm text-gray-100 font-mono focus:outline-none focus:border-violet-500 resize-y"
+          placeholder="ここにテキストを入力..."></textarea>
+      </div>
+      <div>
+        <label for="output-text" class="block text-sm text-gray-300 mb-1">出力テキスト</label>
+        <textarea id="output-text" rows="6" readonly
+          class="w-full bg-gray-800 border border-gray-600 rounded p-3 text-sm text-green-400 font-mono focus:outline-none resize-y"
+          aria-label="暗号化/復号化された出力テキスト"></textarea>
+      </div>
+    </div>
+
+    <!-- Controls -->
+    <div class="flex gap-2 mb-4">
+      <button id="copy-output-btn"
+        class="bg-violet-700 hover:bg-violet-600 text-white px-4 py-2 rounded text-sm transition-colors"
+        aria-label="出力テキストをコピーする">
+        出力コピー
+      </button>
+      <button id="swap-btn"
+        class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm transition-colors"
+        aria-label="入力と出力を入れ替える">
+        ⇄ 入れ替え
+      </button>
+      <button id="brute-caesar-btn"
+        class="bg-gray-700 hover:bg-gray-600 text-white px-4 py-2 rounded text-sm transition-colors"
+        aria-label="Caesar全25パターンを試す">
+        Caesar 全試行
+      </button>
+    </div>
+
+    <!-- Brute force results -->
+    <div id="brute-results" class="hidden bg-gray-800 rounded p-4 mb-4 max-h-48 overflow-y-auto">
+      <h3 class="text-xs font-bold text-gray-400 mb-2">Caesar 全シフト試行</h3>
+      <div id="brute-list" class="space-y-1"></div>
+    </div>
+
+    <!-- Frequency analysis -->
+    <div class="bg-gray-800 rounded p-4">
+      <h2 class="text-sm font-bold text-gray-300 mb-2">文字頻度分析</h2>
+      <p class="text-xs text-gray-500 mb-3">英語基準頻度と比較（e=12.7%, t=9.1%, a=8.2%, o=7.5%, i=7.0%）</p>
+      <canvas id="freq-canvas" width="720" height="160"
+        role="img" aria-label="文字頻度分析グラフ" class="w-full rounded mb-2"></canvas>
+      <div id="freq-suggestion" class="text-xs text-yellow-400"></div>
+    </div>
+  </div>
+
+  <script>
+    // English letter frequencies
+    const EN_FREQ = {
+      A:8.2,B:1.5,C:2.8,D:4.3,E:12.7,F:2.2,G:2.0,H:6.1,I:7.0,J:0.2,K:0.8,L:4.0,M:2.4,
+      N:6.7,O:7.5,P:1.9,Q:0.1,R:6.0,S:6.3,T:9.1,U:2.8,V:1.0,W:2.4,X:0.2,Y:2.0,Z:0.1
+    };
+    const ALPHA = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+
+    let currentMode = 'caesar';
+    let customMap = {};
+    ALPHA.split('').forEach(c => customMap[c] = c);
+
+    // Tab switching
+    document.querySelectorAll('.cipher-tab').forEach(btn => {
+      btn.addEventListener('click', () => {
+        currentMode = btn.dataset.tab;
+        document.querySelectorAll('.cipher-tab').forEach(b => {
+          b.className = 'cipher-tab bg-gray-700 hover:bg-gray-600 text-gray-300 px-4 py-2 rounded-t text-sm';
+        });
+        btn.className = 'cipher-tab bg-violet-700 text-white px-4 py-2 rounded-t font-medium text-sm';
+        document.querySelectorAll('.cipher-panel').forEach(p => p.classList.add('hidden'));
+        document.getElementById('panel-' + currentMode).classList.remove('hidden');
+        update();
+      });
+    });
+
+    // Caesar slider
+    document.getElementById('caesar-shift').addEventListener('input', function() {
+      document.getElementById('caesar-shift-label').textContent = this.value;
+      const shift = parseInt(this.value);
+      const encoded = String.fromCharCode(((0 + shift) % 26) + 65);
+      document.getElementById('caesar-preview').textContent = encoded;
+      document.getElementById('caesar-rot').textContent = shift;
+      update();
+    });
+    document.getElementById('caesar-mode').addEventListener('change', update);
+    // Init
+    const initShift = 13;
+    document.getElementById('caesar-preview').textContent = String.fromCharCode(((0 + initShift) % 26) + 65);
+    document.getElementById('caesar-rot').textContent = initShift;
+
+    // Custom mapping grid
+    const customGrid = document.getElementById('custom-mapping-grid');
+    ALPHA.split('').forEach(c => {
+      const cell = document.createElement('div');
+      cell.className = 'flex flex-col items-center';
+      const fromLabel = document.createElement('div');
+      fromLabel.className = 'text-xs text-gray-500';
+      fromLabel.textContent = c;
+      const toSel = document.createElement('select');
+      toSel.id = 'custom-' + c;
+      toSel.className = 'bg-gray-700 border border-gray-600 rounded text-xs text-violet-300 w-10 text-center focus:outline-none focus:border-violet-500 p-0.5';
+      toSel.setAttribute('aria-label', c + 'の換字先');
+      ALPHA.split('').forEach(t => {
+        const opt = document.createElement('option');
+        opt.value = t;
+        opt.textContent = t;
+        if (t === c) opt.selected = true;
+        toSel.appendChild(opt);
+      });
+      toSel.addEventListener('change', e => {
+        customMap[c] = e.target.value;
+        update();
+      });
+      cell.appendChild(fromLabel);
+      cell.appendChild(toSel);
+      customGrid.appendChild(cell);
+    });
+
+    document.getElementById('custom-reset-btn').addEventListener('click', () => {
+      ALPHA.split('').forEach(c => {
+        customMap[c] = c;
+        const sel = document.getElementById('custom-' + c);
+        if (sel) sel.value = c;
+      });
+      update();
+    });
+
+    document.getElementById('custom-random-btn').addEventListener('click', () => {
+      const shuffled = ALPHA.split('').sort(() => Math.random() - 0.5);
+      ALPHA.split('').forEach((c, i) => {
+        customMap[c] = shuffled[i];
+        const sel = document.getElementById('custom-' + c);
+        if (sel) sel.value = shuffled[i];
+      });
+      update();
+    });
+
+    function caesarChar(c, shift, mode) {
+      const upper = c.toUpperCase();
+      if (!ALPHA.includes(upper)) return c;
+      const isLower = c === c.toLowerCase();
+      const idx = ALPHA.indexOf(upper);
+      let newIdx;
+      if (mode === 'encrypt') newIdx = (idx + shift) % 26;
+      else newIdx = (idx - shift + 26) % 26;
+      const res = ALPHA[newIdx];
+      return isLower ? res.toLowerCase() : res;
+    }
+
+    function atbashChar(c) {
+      const upper = c.toUpperCase();
+      if (!ALPHA.includes(upper)) return c;
+      const isLower = c === c.toLowerCase();
+      const idx = ALPHA.indexOf(upper);
+      const res = ALPHA[25 - idx];
+      return isLower ? res.toLowerCase() : res;
+    }
+
+    function applyCipher(text) {
+      if (currentMode === 'caesar') {
+        const shift = parseInt(document.getElementById('caesar-shift').value);
+        const mode = document.getElementById('caesar-mode').value;
+        return text.split('').map(c => caesarChar(c, shift, mode)).join('');
+      } else if (currentMode === 'atbash') {
+        return text.split('').map(c => atbashChar(c)).join('');
+      } else {
+        return text.split('').map(c => {
+          const upper = c.toUpperCase();
+          if (!ALPHA.includes(upper)) return c;
+          const isLower = c === c.toLowerCase();
+          const mapped = customMap[upper] || upper;
+          return isLower ? mapped.toLowerCase() : mapped;
+        }).join('');
+      }
+    }
+
+    function update() {
+      const input = document.getElementById('input-text').value;
+      const output = applyCipher(input);
+      document.getElementById('output-text').value = output;
+      drawFrequency(input);
+    }
+
+    document.getElementById('input-text').addEventListener('input', update);
+
+    function drawFrequency(text) {
+      const canvas = document.getElementById('freq-canvas');
+      const ctx = canvas.getContext('2d');
+      const W = canvas.width, H = canvas.height;
+      ctx.clearRect(0, 0, W, H);
+      ctx.fillStyle = '#1f2937';
+      ctx.fillRect(0, 0, W, H);
+
+      const upper = text.toUpperCase().replace(/[^A-Z]/g, '');
+      const counts = {};
+      ALPHA.split('').forEach(c => counts[c] = 0);
+      upper.split('').forEach(c => counts[c]++);
+      const total = upper.length;
+
+      const PAD = { top: 10, right: 5, bottom: 30, left: 5 };
+      const GW = W - PAD.left - PAD.right;
+      const GH = H - PAD.top - PAD.bottom;
+      const barW = Math.floor(GW / 26) - 1;
+      const maxPct = 15;
+
+      ALPHA.split('').forEach((c, i) => {
+        const x = PAD.left + i * (GW / 26);
+        const textFreq = total > 0 ? (counts[c] / total * 100) : 0;
+        const enFreq = EN_FREQ[c] || 0;
+
+        // English freq background bar
+        const enH = (enFreq / maxPct) * GH;
+        ctx.fillStyle = 'rgba(139,92,246,0.2)';
+        ctx.fillRect(x + 1, PAD.top + GH - enH, barW, enH);
+
+        // Text freq bar
+        if (textFreq > 0) {
+          const tH = (textFreq / maxPct) * GH;
+          ctx.fillStyle = textFreq > enFreq * 1.5 ? '#f87171' : '#a78bfa';
+          ctx.fillRect(x + 1, PAD.top + GH - tH, barW, tH);
+          // Count label
+          if (textFreq > 1) {
+            ctx.fillStyle = '#e5e7eb';
+            ctx.font = '9px monospace';
+            ctx.textAlign = 'center';
+            ctx.fillText(textFreq.toFixed(0) + '%', x + barW / 2 + 1, PAD.top + GH - tH - 2);
+          }
+        }
+
+        // Letter label
+        ctx.fillStyle = '#6b7280';
+        ctx.font = '10px monospace';
+        ctx.textAlign = 'center';
+        ctx.fillText(c, x + barW / 2 + 1, PAD.top + GH + 14);
+      });
+
+      // Suggestions
+      if (total > 10) {
+        const topChars = Object.entries(counts)
+          .filter(([_, v]) => v > 0)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 3)
+          .map(([c]) => c);
+        const suggDiv = document.getElementById('freq-suggestion');
+        const topStr = topChars.join(', ');
+        suggDiv.textContent = `最頻出文字: ${topStr} → もし英語テキストなら E, T, A の可能性あり`;
+      } else {
+        document.getElementById('freq-suggestion').textContent = '';
+      }
+    }
+
+    // Brute force Caesar
+    document.getElementById('brute-caesar-btn').addEventListener('click', () => {
+      const input = document.getElementById('input-text').value;
+      const list = document.getElementById('brute-list');
+      list.textContent = '';
+      for (let shift = 1; shift <= 25; shift++) {
+        const decoded = input.split('').map(c => caesarChar(c, shift, 'decrypt')).join('');
+        const row = document.createElement('div');
+        row.className = 'flex gap-2 items-start text-xs hover:bg-gray-700 rounded p-1 cursor-pointer';
+        row.addEventListener('click', () => {
+          document.getElementById('caesar-shift').value = shift;
+          document.getElementById('caesar-shift-label').textContent = shift;
+          document.getElementById('caesar-mode').value = 'decrypt';
+          const encoded = String.fromCharCode(((0 + shift) % 26) + 65);
+          document.getElementById('caesar-preview').textContent = encoded;
+          document.getElementById('caesar-rot').textContent = shift;
+          // Switch to caesar tab
+          document.querySelector('[data-tab="caesar"]').click();
+          update();
+        });
+        const shiftSpan = document.createElement('span');
+        shiftSpan.className = 'text-violet-400 font-mono w-10 shrink-0';
+        shiftSpan.textContent = 'ROT-' + shift + ':';
+        const textSpan = document.createElement('span');
+        textSpan.className = 'text-gray-300 font-mono truncate';
+        textSpan.textContent = decoded.slice(0, 80) + (decoded.length > 80 ? '...' : '');
+        row.appendChild(shiftSpan);
+        row.appendChild(textSpan);
+        list.appendChild(row);
+      }
+      document.getElementById('brute-results').classList.remove('hidden');
+    });
+
+    document.getElementById('copy-output-btn').addEventListener('click', () => {
+      const val = document.getElementById('output-text').value;
+      navigator.clipboard.writeText(val).then(() => {
+        const btn = document.getElementById('copy-output-btn');
+        btn.textContent = 'コピー完了 ✓';
+        setTimeout(() => btn.textContent = '出力コピー', 2000);
+      });
+    });
+
+    document.getElementById('swap-btn').addEventListener('click', () => {
+      const inp = document.getElementById('input-text');
+      const out = document.getElementById('output-text');
+      inp.value = out.value;
+      update();
+    });
+
+    update();
+  </script>
+</body>
+</html>
